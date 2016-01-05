@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import urllib2
 import itertools
 import time
+import csv
 
 # ----------------------------------------------------------------------- #
 # Custom Classes...
@@ -86,7 +87,11 @@ def extract_from_page(url):
 # ----------------------------------------------------------------------- #
 # Saving...
 
-def save_data(data, page):
+def first_save(data, link, file_name):
+	with open(file_name, 'wb') as csvfile:
+		mywriter = csv.writer(csvfile, delimiter=',')
+		mywriter.writerow(['section','link','question','answer','answer_value'])
+		
 
 	return
 
@@ -99,7 +104,7 @@ if __name__ == '__main__':
 
 	for key in pages:
 		data = extract_from_page(pages[key])
-
+		first_save(data, pages[key], key+'.csv')
 
 
 # ----------------------------------------------------------------------- #
