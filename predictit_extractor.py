@@ -81,19 +81,27 @@ def extract_from_url(url):
 			data.append([section, link, q, top, top_val])
 			data.append([section, link, q, bot, bot_val])
 
-	return np.array(data)
+	return data
 
 def get_time_string():
 	now = datetime.datetime.now()
 	return '%s-%s-%s-%s-%s'%(now.year,now.month,now.day,now.hour,now.minute)
 
 def row_equal(r1, r2):
-	print r1[0:4]
-	print r2[0:4]
-	print r1[0:4] == r2[0:4]
-	# return r1[0:4] == r2[0:4]
-	return r1[0:4].all() == r2[0:4].all() # i.e. section,link,question,answer are ==
+	# print r1[0:4]
+	# print r2[0:4]
+	# print r1[0:4] == r2[0:4]
+	return r1[0:4] == r2[0:4]
+	# return r1[0:4].all() == r2[0:4].all() # i.e. section,link,question,answer are ==
 
+def stringed(matrix):
+	ret = []
+	for i in range(len(matrix)):
+		s = ''
+		for j in range(len(matrix[i])):
+			s += matrix[i][j]
+		ret.append(s)
+	return ret
 
 # ----------------------------------------------------------------------- #
 # Data saving...
@@ -110,34 +118,65 @@ def first_save(data, file_name):
 def add_new_data(new_data, file_name):
 	print 'Adding new data parse to: %s...'%file_name
 
-	rows = []
+	old_data = []
 	with open(file_name, 'rb') as csvfile:
 		reader = csv.reader(csvfile, delimiter=',')
 		for row in reader:
-			rows.append(row)
-	rows = np.array(rows)
+			old_data.append(row)
 
-	old_header = rows[0]
+	str_old_data = stringed(np.array(old_data)[:,:len(HEADERS)])
+	str_new_data = stringed(np.array(new_data)[:,:len(HEADERS)])
+
+	old_header = old_data[0]
 	empty_cols = len(old_header) - len(HEADERS) # Let's me know how many columns to skip for new/deleted entries.
 
 	new_rows = [old_header+[get_time_string()]]
 
-	old_i,new_i = 1,1 # skip header rows
-	while old_i < len(rows) and new_i < len(new_data):
-		if row_equal(rows[old_i], new_data[new_i]):
-			new_rows.append(rows[old_i]+new_data[new_i][-1]) # Add the value is in last column.
+	old_i,new_i = 1,0 # skip header row (no header in new_data)
+	print len(str_old_data),len(str_new_data)
+	while old_i < len(str_old_data) or new_i < len(str_new_data):
+		# print old_i,new_i
+		if old_i < len(str_old_data) and new_i < len(str_new_data) and str_old_data[old_i] == str_new_data[new_i]:
+			new_rows.append(old_data[old_i]+[new_data[new_i][-1]]) # Add the value is in last column.
 			old_i += 1
 			new_i += 1
 		else:
+			change = lambda x: x+1
+			changed = False
 			# If there is a new question/answer not present originally.
-			if new_data[new_i][:len(HEADERS)] not in rows[:,:len(HEADERS)]:
-				new_rows.append(new_data[new_i][:-1] + ['' for _ in range(empty_cols)] + new_data[new_i][-1])
+			if new_i < len(str_new_data) and str_new_data[new_i] not in str_old_data:
+				new_rows.append(new_data[new_i][:-1] + ['' for _ in range(empty_cols)] + [new_data[new_i][-1]])
 				new_i += 1
+				changed = True
+			else:
+				orig = new_i
+				while str_new_data[new_i] != str_old_data[old_i]:
+					changed = True
+					new_i = change(new_i)
+					if new_i >= len(str_new_data):
+						new_i = orig
+						change = lambda x: x-1
+					if new_i < 0:
+						print 'ERROR: Infinite loop new_i!'
+						exit(0)
 
+			change = lambda x: x+1
 			# If there is an old question/answer not present now.
-			if rows[old_i][:len(HEADERS)] not in new_data[:,:len(HEADERS)]:
+			if old_i < len(str_old_data) and str_old_data[old_i] not in str_new_data:
 				new_rows.append(rows[old_i] + ['' for _ in range(empty_cols)])
 				old_i += 1
+				changed = True
+			elif not changed:
+				orig = old_i
+				while str_old_data[old_i] != str_new_data[new_i]:
+					changed = True
+					old_i = change(old_i)
+					if old_i >= len(str_old_data):
+						old_i = orig
+						change = lambda x: x-1
+					if old_i < 0:
+						print 'ERROR: Infinite loop old_i!'
+						exit(0)
 
 	with open(file_name, 'wb') as csvfile:
 		print 'Updating file: %s'%file_name
@@ -155,6 +194,7 @@ if __name__ == '__main__':
 
 	for name in pages:
 		data = extract_from_url(pages[name])
+		# first_save(data, DATA_FILES_LOCATION+name+'.csv')
 		add_new_data(data, DATA_FILES_LOCATION+name+'.csv')
 
 
