@@ -1,29 +1,23 @@
+"""
+Author: Kian Kenyon-Dean
+
+Note that time signatures are structured as follows:
+	YEAR-MONTH-DAY-MINUTE-HOUR
+	YYYY-MM-DD-hh-mm
+
+Data organization:
+	'section','link','question','answer', vals...
+"""
+
 from os import listdir
 from bs4 import BeautifulSoup
+import numpy as np
+import datetime
 import urllib2
 import itertools
 import time
 import csv
-
-# ----------------------------------------------------------------------- #
-# Custom Classes...
-
-class HTMLParseError(Exception): 
-	pass
-
-class Contract:
-	def __init__(self,link,q,top,top_val,bot,bot_val):
-		self.link = link
-		self.q = q
-		self.top = top
-		self.top_val = top_val
-		self.bot = bot
-		self.bot_val = bot_val
-		self.yes_no = top=='Yes' and bot=='No'
-	
-	def get_link(self):
-		return "https://www.predictit.org"+self.link
-
+import pandas
 # ----------------------------------------------------------------------- #
 # Global Variables...
 
@@ -34,12 +28,18 @@ QUESTION_CLASS_NAME = "_"+TAG_DATE+"_question"
 ANSWER_CLASS_NAME = "_"+TAG_DATE+"_h-class-1 _"+TAG_DATE+"_border"
 VALUE_CLASS_NAME = "_"+TAG_DATE+"_h-class-2r _"+TAG_DATE+"_border"
 
-DATA_FILES_LOCATION = './data_files/'
+DATA_FILES_LOCATION = 'data_files/'
+
+HEADERS = {0:'section', 1:'link', 2:'question', 3:'answer'}
 
 # ----------------------------------------------------------------------- #
-# Extraction...
+# Custom Classes and helpers...
+class HTMLParseError(Exception): 
+	pass
 
-def extract_from_page(url):
+def extract_from_url(url):
+	data = []
+
 	page = urllib2.urlopen(url, 'html.parser')
 	soup = BeautifulSoup(page.read(),"lxml")
 
@@ -51,8 +51,6 @@ def extract_from_page(url):
 	if len(section_names) != len(market_lists):
 		raise HTMLParseError('Unequal number of section names vs marketLists!')
 
-
-	data_dict = {section:[] for section in section_names}
 	for section, market_html in itertools.izip(section_names, market_lists):
 		print 'Extracting from section: \"%s\"...'%(section)
 		contracts = market_html.find_all("div", {"class":"col-xs-12 col-sm-6 col-md-4"})
@@ -80,20 +78,73 @@ def extract_from_page(url):
 				except ValueError:
 					raise HTMLParseError('Bad parse when extracting share values!')
 
-			data_dict[section].append(Contract(link,q,top,top_val,bot,bot_val))
-	
-	return data_dict
+			data.append([section, link, q, top, top_val])
+			data.append([section, link, q, bot, bot_val])
+
+	return np.array(data)
+
+def get_time_string():
+	now = datetime.datetime.now()
+	return '%s-%s-%s-%s-%s'%(now.year,now.month,now.day,now.hour,now.minute)
+
+def row_equal(r1, r2):
+	print r1[0:4]
+	print r2[0:4]
+	print r1[0:4] == r2[0:4]
+	# return r1[0:4] == r2[0:4]
+	return r1[0:4].all() == r2[0:4].all() # i.e. section,link,question,answer are ==
+
 
 # ----------------------------------------------------------------------- #
-# Saving...
+# Data saving...
 
-def first_save(data, link, file_name):
+def first_save(data, file_name):
+	print 'Writing new file: %s...'%file_name
 	with open(file_name, 'wb') as csvfile:
-		mywriter = csv.writer(csvfile, delimiter=',')
-		mywriter.writerow(['section','link','question','answer','answer_value'])
-		
+		writer = csv.writer(csvfile, delimiter=',')
+		writer.writerow(['section','link','question','answer',get_time_string()])
+		for row in data:
+			writer.writerow(row)
+	print
 
-	return
+def add_new_data(new_data, file_name):
+	print 'Adding new data parse to: %s...'%file_name
+
+	rows = []
+	with open(file_name, 'rb') as csvfile:
+		reader = csv.reader(csvfile, delimiter=',')
+		for row in reader:
+			rows.append(row)
+	rows = np.array(rows)
+
+	old_header = rows[0]
+	empty_cols = len(old_header) - len(HEADERS) # Let's me know how many columns to skip for new/deleted entries.
+
+	new_rows = [old_header+[get_time_string()]]
+
+	old_i,new_i = 1,1 # skip header rows
+	while old_i < len(rows) and new_i < len(new_data):
+		if row_equal(rows[old_i], new_data[new_i]):
+			new_rows.append(rows[old_i]+new_data[new_i][-1]) # Add the value is in last column.
+			old_i += 1
+			new_i += 1
+		else:
+			# If there is a new question/answer not present originally.
+			if new_data[new_i][:len(HEADERS)] not in rows[:,:len(HEADERS)]:
+				new_rows.append(new_data[new_i][:-1] + ['' for _ in range(empty_cols)] + new_data[new_i][-1])
+				new_i += 1
+
+			# If there is an old question/answer not present now.
+			if rows[old_i][:len(HEADERS)] not in new_data[:,:len(HEADERS)]:
+				new_rows.append(rows[old_i] + ['' for _ in range(empty_cols)])
+				old_i += 1
+
+	with open(file_name, 'wb') as csvfile:
+		print 'Updating file: %s'%file_name
+		writer = csv.writer(csvfile, delimiter=',')
+		for newrow in new_rows:
+			writer.writerow(newrow)
+	print
 
 # ----------------------------------------------------------------------- #
 # Main...
@@ -102,12 +153,9 @@ if __name__ == '__main__':
 			'politics':'https://www.predictit.org/Browse/Category/13/US-Politics',
 			'world':'https://www.predictit.org/Browse/Category/4/World'}
 
-	for key in pages:
-		data = extract_from_page(pages[key])
-		first_save(data, pages[key], key+'.csv')
+	for name in pages:
+		data = extract_from_url(pages[name])
+		add_new_data(data, DATA_FILES_LOCATION+name+'.csv')
 
 
 # ----------------------------------------------------------------------- #
-
-
-
