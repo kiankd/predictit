@@ -87,21 +87,16 @@ def get_time_string():
 	now = datetime.datetime.now()
 	return '%s-%s-%s-%s-%s'%(now.year,now.month,now.day,now.hour,now.minute)
 
-def row_equal(r1, r2):
-	# print r1[0:4]
-	# print r2[0:4]
-	# print r1[0:4] == r2[0:4]
-	return r1[0:4] == r2[0:4]
-	# return r1[0:4].all() == r2[0:4].all() # i.e. section,link,question,answer are ==
+SPLITTER = ':::'
 
-def stringed(matrix):
-	ret = []
-	for i in range(len(matrix)):
-		s = ''
-		for j in range(len(matrix[i])):
-			s += matrix[i][j]
-		ret.append(s)
-	return ret
+def stringed_list(lst):
+	s = ''
+	for item in lst:
+		s += item+SPLITTER
+	return s[:-len(SPLITTER)]
+
+def listed_string(string):
+	return string.split(SPLITTER)
 
 # ----------------------------------------------------------------------- #
 # Data saving...
@@ -115,75 +110,51 @@ def first_save(data, file_name):
 			writer.writerow(row)
 	print
 
-def add_new_data(new_data, file_name):
+def add_new_data2(data, file_name):
 	print 'Adding new data parse to: %s...'%file_name
 
-	old_data = []
+	old_data = {}
+	old_header = []
 	with open(file_name, 'rb') as csvfile:
 		reader = csv.reader(csvfile, delimiter=',')
 		for row in reader:
-			old_data.append(row)
+			if not old_header:
+				old_header = row
+			else:
+				old_data[stringed_list(row[:len(HEADERS)])] = row[len(HEADERS):]
 
-	str_old_data = stringed(np.array(old_data)[:,:len(HEADERS)])
-	str_new_data = stringed(np.array(new_data)[:,:len(HEADERS)])
+	new_data = {}
+	for row in data:
+		new_data[stringed_list(row[:len(HEADERS)])] = row[len(HEADERS):]
 
-	old_header = old_data[0]
-	empty_cols = len(old_header) - len(HEADERS) # Let's me know how many columns to skip for new/deleted entries.
+	num_empty_cols = len(old_header) - len(HEADERS) # Let's me know how many columns to skip for new/deleted entries.
+	empty_col_list = ['' for _ in range(num_empty_cols)]
 
 	new_rows = [old_header+[get_time_string()]]
 
-	old_i,new_i = 1,0 # skip header row (no header in new_data)
-	print len(str_old_data),len(str_new_data)
-	while old_i < len(str_old_data) or new_i < len(str_new_data):
-		# print old_i,new_i
-		if old_i < len(str_old_data) and new_i < len(str_new_data) and str_old_data[old_i] == str_new_data[new_i]:
-			new_rows.append(old_data[old_i]+[new_data[new_i][-1]]) # Add the value is in last column.
-			old_i += 1
-			new_i += 1
-		else:
-			change = lambda x: x+1
-			changed = False
-			# If there is a new question/answer not present originally.
-			if new_i < len(str_new_data) and str_new_data[new_i] not in str_old_data:
-				new_rows.append(new_data[new_i][:-1] + ['' for _ in range(empty_cols)] + [new_data[new_i][-1]])
-				new_i += 1
-				changed = True
-			else:
-				orig = new_i
-				while str_new_data[new_i] != str_old_data[old_i]:
-					changed = True
-					new_i = change(new_i)
-					if new_i >= len(str_new_data):
-						new_i = orig
-						change = lambda x: x-1
-					if new_i < 0:
-						print 'ERROR: Infinite loop new_i!'
-						exit(0)
+	for key in sorted(old_data):
+		try:
+			newrow = listed_string(key) + old_data[key] + new_data[key]
+			new_rows.append(newrow)
+		except KeyError:
+			# Then this is an old question that has been resolved.
+			newrow = listed_string(key) + old_data[key] + empty_col_list
+			new_rows.append(newrow)
 
-			change = lambda x: x+1
-			# If there is an old question/answer not present now.
-			if old_i < len(str_old_data) and str_old_data[old_i] not in str_new_data:
-				new_rows.append(rows[old_i] + ['' for _ in range(empty_cols)])
-				old_i += 1
-				changed = True
-			elif not changed:
-				orig = old_i
-				while str_old_data[old_i] != str_new_data[new_i]:
-					changed = True
-					old_i = change(old_i)
-					if old_i >= len(str_old_data):
-						old_i = orig
-						change = lambda x: x-1
-					if old_i < 0:
-						print 'ERROR: Infinite loop old_i!'
-						exit(0)
+	for key in sorted(new_data):
+		try:
+			old_data[key]
+			pass
+		except KeyError:
+			# We have a new question that wasn't present in the previous extraction.
+			newrow = listed_string(key) + empty_col_list + [new_data[key]]
+			new_rows.append(newrow)
 
 	with open(file_name, 'wb') as csvfile:
-		print 'Updating file: %s'%file_name
+		print 'Updating file: %s\n'%file_name
 		writer = csv.writer(csvfile, delimiter=',')
 		for newrow in new_rows:
 			writer.writerow(newrow)
-	print
 
 # ----------------------------------------------------------------------- #
 # Main...
@@ -195,7 +166,7 @@ if __name__ == '__main__':
 	for name in pages:
 		data = extract_from_url(pages[name])
 		# first_save(data, DATA_FILES_LOCATION+name+'.csv')
-		add_new_data(data, DATA_FILES_LOCATION+name+'.csv')
+		add_new_data2(data, DATA_FILES_LOCATION+name+'.csv')
 
 
 # ----------------------------------------------------------------------- #
