@@ -18,6 +18,8 @@ import itertools
 import time
 import csv
 import pandas
+import sys
+
 # ----------------------------------------------------------------------- #
 # Global Variables...
 
@@ -37,6 +39,11 @@ HEADERS = {0:'section', 1:'link', 2:'question', 3:'answer'}
 class HTMLParseError(Exception): 
 	pass
 
+def ascii(text):
+	''' Returns the string without non ASCII characters'''
+	stripped = (c for c in text if 0 < ord(c) < 127)
+	return ''.join(stripped)
+
 def extract_from_url(url):
 	data = []
 
@@ -44,7 +51,7 @@ def extract_from_url(url):
 	soup = BeautifulSoup(page.read(),"lxml")
 
 	section_names = soup.find_all("h2", {"class":"inline-block"})
-	section_names = [tag.contents[0] for tag in section_names]
+	section_names = [ascii(tag.contents[0]) for tag in section_names]
 
 	market_lists = soup.find_all("div", {"id":"marketList"})
 
@@ -52,17 +59,17 @@ def extract_from_url(url):
 		raise HTMLParseError('Unequal number of section names vs marketLists!')
 
 	for section, market_html in itertools.izip(section_names, market_lists):
-		print 'Extracting from section: \"%s\"...'%(section)
+		# print 'Extracting from section: \"%s\"...'%(section)
 		contracts = market_html.find_all("div", {"class":"col-xs-12 col-sm-6 col-md-4"})
 
 		for con in contracts:
 			link = con.find("div",{"class":LINK_CLASS_NAME}).a['href']
 
-			q = con.find("h3", {"class":QUESTION_CLASS_NAME}).contents[0]
+			q = ascii(con.find("h3", {"class":QUESTION_CLASS_NAME}).contents[0])
 			
 			best_answers = con.find_all("td",{"class":ANSWER_CLASS_NAME})
-			top = best_answers[0].find('a').contents[0]
-			bot = best_answers[1].find('a').contents[0]
+			top = ascii(best_answers[0].find('a').contents[0])
+			bot = ascii(best_answers[1].find('a').contents[0])
 
 			best_values = con.find_all("td",{"class":VALUE_CLASS_NAME})
 			
@@ -110,8 +117,9 @@ def first_save(data, file_name):
 			writer.writerow(row)
 	print
 
-def add_new_data2(data, file_name):
-	print 'Adding new data parse to: %s...'%file_name
+def add_new_data2(data, file_name, verbose=True):
+	if verbose:
+		print 'Adding new data parse to: %s...'%file_name
 
 	old_data = {}
 	old_header = []
@@ -127,7 +135,8 @@ def add_new_data2(data, file_name):
 	for row in data:
 		new_data[stringed_list(row[:len(HEADERS)])] = row[len(HEADERS):]
 
-	num_empty_cols = len(old_header) - len(HEADERS) # Let's me know how many columns to skip for new/deleted entries.
+	# Let's me know how many columns to skip for new/deleted entries.
+	num_empty_cols = len(old_header) - len(HEADERS) 
 	empty_col_list = ['' for _ in range(num_empty_cols)]
 
 	new_rows = [old_header+[get_time_string()]]
@@ -151,7 +160,8 @@ def add_new_data2(data, file_name):
 			new_rows.append(newrow)
 
 	with open(file_name, 'wb') as csvfile:
-		print 'Updating file: %s\n'%file_name
+		if verbose:
+			print 'Updating file: %s\n'%file_name
 		writer = csv.writer(csvfile, delimiter=',')
 		for newrow in new_rows:
 			writer.writerow(newrow)
@@ -165,8 +175,27 @@ if __name__ == '__main__':
 
 	for name in pages:
 		data = extract_from_url(pages[name])
-		# first_save(data, DATA_FILES_LOCATION+name+'.csv')
-		add_new_data2(data, DATA_FILES_LOCATION+name+'.csv')
+
+		if len(sys.argv) != 3:
+			print 'Please call with 2 arguments:'
+ 			print '    $ python predictit_extractor.py NEW/UPDATE NAME_OF_NEW_FILES'
+			exit(0)
+
+		filename = name+sys.argv[2]+'.csv'
+
+		if sys.argv[1] == 'new':
+			first_save(data, DATA_FILES_LOCATION+filename)
+		
+		elif sys.argv[1] == 'update':
+			filename = name+sys.argv[2]+'.csv'
+			
+			if not filename in listdir(DATA_FILES_LOCATION):
+				print 'File %s not found! Try calling this with the "new" arg first!'
+				exit(0)
+
+			if name == 'elections':
+				print 'Updating %s...'%(get_time_string())
+			add_new_data2(data, DATA_FILES_LOCATION+filename, verbose=False)
 
 
 # ----------------------------------------------------------------------- #
